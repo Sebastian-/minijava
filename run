@@ -1,0 +1,32 @@
+#!/bin/bash
+PROJECT=.
+IRPROJECT=../ir
+ECLIPSE=/Applications/eclipse-juno
+CLASSPATH=$PROJECT/bin:$IRPROJECT/bin:$ECLIPSE/plugins/org.junit_4.10.0.v4_10_0_v20120426-0900/junit.jar:$ECLIPSE/plugins/org.hamcrest.core_1.1.0.v20090501071000.jar 
+export CLASSPATH
+echo "Program: $2"
+cat $2
+echo ""
+pass=$1
+case $pass in
+    ([Pp]ar*)
+	pass=Parser  ;;
+    ([Ff]low*)
+	pass=FlowGraph ;;
+    ([Gg]en* | [Cc]ode)
+	pass=Generate ;;
+    ([Ii]nt*)
+	pass=Interference ;;
+    ([Rr]eg*)
+	pass=RegAlloc ;;
+    ([Ff]inal*)
+	pass=Final ;;
+    ([Tt]ran* | [Ii][Rr]*)
+	pass=Translate ;;
+    ([Tt]ype* | [Cc]heck*)
+	pass=TypeChecker ;;
+    (*)
+	echo "Don't understand $pass";
+	exit 1;;
+esac
+java driver.D$pass $2

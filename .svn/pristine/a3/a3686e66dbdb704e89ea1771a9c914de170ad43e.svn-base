@@ -1,0 +1,337 @@
+package translate.implementation;
+
+import static ir.tree.IR.CMOVE;
+import static ir.tree.IR.ESEQ;
+import static ir.tree.IR.FALSE;
+import static ir.tree.IR.MOVE;
+import static ir.tree.IR.SEQ;
+import static ir.tree.IR.TEMP;
+import static ir.tree.IR.TRUE;
+import static ir.tree.IR.JUMP;
+import static ir.tree.IR.LABEL;
+import static translate.Translator.L_MAIN;
+
+import util.List;
+
+import ast.AST;
+import ast.And;
+import ast.ArrayAssign;
+import ast.ArrayLength;
+import ast.ArrayLookup;
+import ast.Assign;
+import ast.Block;
+import ast.BooleanLiteral;
+import ast.BooleanType;
+import ast.Call;
+import ast.ClassDecl;
+import ast.Expression;
+import ast.IdentifierExp;
+import ast.If;
+import ast.IntArrayType;
+import ast.IntegerLiteral;
+import ast.IntegerType;
+import ast.LessThan;
+import ast.MainClass;
+import ast.MethodDecl;
+import ast.Minus;
+import ast.NewArray;
+import ast.NewObject;
+import ast.NodeList;
+import ast.Not;
+import ast.ObjectType;
+import ast.Plus;
+import ast.Print;
+import ast.Program;
+import ast.This;
+import ast.Times;
+import ast.Type;
+import ast.UnknownType;
+import ast.VarDecl;
+import ast.While;
+
+import ir.frame.Access;
+import ir.frame.Frame;
+import ir.temp.Label;
+import ir.temp.Temp;
+import ir.tree.IR;
+import ir.tree.IRExp;
+import ir.tree.IRStm;
+import ir.tree.TEMP;
+import ir.tree.BINOP.Op;
+import ir.tree.CJUMP.RelOp;
+
+import translate.Fragments;
+import translate.ProcFragment;
+import translate.Translator;
+import typechecker.implementation.MethodType;
+import util.FunTable;
+import util.Lookup;
+import visitor.Visitor;
+
+
+/**
+ * This visitor builds up a collection of IRTree code fragments for the body
+ * of methods in a minijava program.
+ * <p>
+ * Methods that visit statements and expression return a TRExp, other methods 
+ * just return null, but they may add Fragments to the collection by means
+ * of a side effect.
+ * 
+ * @author kdvolder
+ */
+public class TranslateVisitor implements Visitor<TRExp> {
+
+	/**
+	 * We build up a list of Fragment (pieces of stuff to be converted into
+	 * assembly) here.
+	 */
+	private Fragments frags;
+
+	/**
+	 * We use this factory to create Frame's, without making our code dependent
+	 * on the target architecture.
+	 */
+	private Frame frameFactory;
+	private Frame frame;
+	private FunTable<Access> currentEnv;
+
+	public TranslateVisitor(Lookup<Type> table, Frame frameFactory) {
+		this.frags = new Fragments(frameFactory);
+		this.frameFactory = frameFactory;
+	}
+
+	/////// Helpers //////////////////////////////////////////////
+
+	/**
+	 * Create a frame with a given number of formals.
+	 */
+	private Frame newFrame(Label name, int formals) {
+		return frameFactory.newFrame(name, formals);
+	}
+
+	private void putEnv(String name, Access access) {
+		currentEnv = currentEnv.insert(name, access);
+	}
+	
+	/**
+	 * After the visitor successfully traversed the program, 
+	 * retrieve the built-up list of Fragments with this method.
+	 */
+	public Fragments getResult() {
+		return frags;
+	}
+
+	////// Visitor ///////////////////////////////////////////////
+	
+	@Override
+	public <T extends AST> TRExp visit(NodeList<T> ns) {
+		IRStm result = IR.NOP;
+		for (int i = 0; i < ns.size(); i++) {
+			AST nextStm = ns.elementAt(i);
+			result = IR.SEQ(result, nextStm.accept(this).unNx());
+		}
+		return new Nx(result);
+	}
+
+	@Override
+	public TRExp visit(Program n) {
+		n.mainClass.accept(this);
+		n.classes.accept(this);
+		
+		return null;
+	}
+
+	@Override
+	public TRExp visit(MainClass n) {
+		frame = newFrame(L_MAIN, 0);
+		currentEnv = FunTable.theEmpty();
+		TRExp statement = n.statement.accept(this);
+		IRStm body = statement.unNx();
+		frags.add(new ProcFragment(frame, frame.procEntryExit1(body)));
+		
+		return null;
+	}
+
+	@Override
+	public TRExp visit(ClassDecl n) {
+		currentEnv = FunTable.theEmpty();
+		n.vars.accept(this);
+		n.methods.accept(this);
+		
+		return null;
+	}
+
+	@Override
+	public TRExp visit(MethodDecl n) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public TRExp visit(VarDecl n) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public TRExp visit(BooleanType n) {
+		throw new Error("Not implemented");
+	}
+
+	@Override
+	public TRExp visit(IntegerType n) {
+		throw new Error("Not implemented");
+	}
+
+	@Override
+	public TRExp visit(IntArrayType n) {
+		throw new Error("Not implemented");
+	}
+
+	@Override
+	public TRExp visit(ObjectType n) {
+		throw new Error("Not implemented");
+	}
+
+	@Override
+	public TRExp visit(MethodType n) {
+		throw new Error("Not implemented");
+	}
+
+	@Override
+	public TRExp visit(UnknownType n) {
+		throw new Error("Not implemented");
+	}
+
+	@Override
+	public TRExp visit(Block n) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public TRExp visit(If n) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public TRExp visit(While n) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public TRExp visit(Print n) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public TRExp visit(Assign n) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public TRExp visit(ArrayAssign n) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public TRExp visit(And n) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public TRExp visit(LessThan n) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+	
+	// Arithmetic Ops =================================================
+	
+	private TRExp numericOp(Op op, Expression e1, Expression e2) {
+		TRExp l = e1.accept(this);
+		TRExp r = e2.accept(this);
+		return new Ex(IR.BINOP(op, l.unEx(), r.unEx()));
+	}
+
+	@Override
+	public TRExp visit(Plus n) {
+		return numericOp(Op.PLUS,n.e1,n.e2);
+	}
+
+	@Override
+	public TRExp visit(Minus n) {
+		return numericOp(Op.MINUS,n.e1,n.e2);
+	}
+
+	@Override
+	public TRExp visit(Times n) {
+		return numericOp(Op.MUL,n.e1,n.e2);
+	}
+
+	@Override
+	public TRExp visit(ArrayLookup n) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public TRExp visit(ArrayLength n) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public TRExp visit(Call n) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public TRExp visit(IntegerLiteral n) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public TRExp visit(BooleanLiteral n) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public TRExp visit(IdentifierExp n) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public TRExp visit(This n) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public TRExp visit(NewArray n) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public TRExp visit(NewObject n) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public TRExp visit(Not not) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+	
+}

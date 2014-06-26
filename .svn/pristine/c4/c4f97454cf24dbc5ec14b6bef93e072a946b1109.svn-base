@@ -1,0 +1,377 @@
+package typechecker.implementation;
+
+
+import java.util.ArrayList;
+import java.util.List;
+
+import ast.AST;
+import ast.And;
+import ast.ArrayAssign;
+import ast.ArrayLength;
+import ast.ArrayLookup;
+import ast.Assign;
+import ast.Block;
+import ast.BooleanLiteral;
+import ast.BooleanType;
+import ast.Call;
+import ast.ClassDecl;
+import ast.Expression;
+import ast.IdentifierExp;
+import ast.If;
+import ast.IntArrayType;
+import ast.IntegerLiteral;
+import ast.IntegerType;
+import ast.LessThan;
+import ast.MainClass;
+import ast.MethodDecl;
+import ast.Minus;
+import ast.NewArray;
+import ast.NewObject;
+import ast.NodeList;
+import ast.Not;
+import ast.ObjectType;
+import ast.Plus;
+import ast.Print;
+import ast.Program;
+import ast.This;
+import ast.Times;
+import ast.Type;
+import ast.VarDecl;
+import ast.While;
+
+import typechecker.ErrorReport;
+import util.ImpTable;
+import visitor.Visitor;
+
+/**
+ * This class implements Phase 2 of the Type Checker. This phase
+ * assumes that we have already constructed the program's symbol table in
+ * Phase1.
+ * <p>
+ * Phase 2 checks for the use of undefined identifiers and type errors.
+ * <p>
+ * Visitors may return a Type as a result. Generally, only visiting 
+ * an expression or a type actually returns a type.
+ * <p>
+ * Visiting other nodes just returns null.
+ * 
+ * @author kdvolder
+ */
+public class TypeCheckVisitor implements Visitor<Type> {
+
+	/**
+	 * The place to send error messages to.
+	 */
+	private ErrorReport errors;
+
+	/**
+	 * The symbol table from Phase 1. 
+	 */
+	private ImpTable<Type> env;
+	
+	private ObjectType currentClass = null;
+	private MethodType currentMethod = null;
+
+	public TypeCheckVisitor(ImpTable<Type> variables, ErrorReport errors) {
+		this.env = variables;
+		this.errors = errors;
+	}
+
+	//// Helpers /////////////////////
+
+	/**
+	 * Check whether the type of a particular expression is as expected.
+	 */
+	private void check(Expression exp, Type expected) {
+		Type actual = exp.accept(this);
+		if (!assignableFrom(expected, actual))
+			errors.typeError(exp, expected, actual);
+	}
+
+	/**
+	 * Check whether two types in an expression are the same
+	 */
+	private void check(Expression exp, Type t1, Type t2) {
+		if (!t1.equals(t2))
+			errors.typeError(exp, t1, t2);
+	}	
+
+	private boolean assignableFrom(Type varType, Type valueType) {
+		return varType.equals(valueType); 
+	}
+
+	///////// Visitor implementation //////////////////////////////////////
+
+	@Override
+	public <T extends AST> Type visit(NodeList<T> ns) {
+		for (int i = 0; i < ns.size(); i++) {
+			ns.elementAt(i).accept(this);
+		}
+		return null;
+	}
+
+	@Override
+	public Type visit(Program n) {
+		n.mainClass.accept(this);
+		n.classes.accept(this);
+		return null;
+	}
+
+	@Override
+	public Type visit(MainClass n) {
+		n.statement.accept(this);
+		return null;
+	}
+
+	@Override
+	public Type visit(ClassDecl n) {
+		this.currentClass = (ObjectType) env.lookup(n.name);
+		n.methods.accept(this);
+		this.currentClass = null;
+		return null;
+	}
+
+	@Override
+	public Type visit(MethodDecl n) {
+		if (currentClass.classInfo.getMethod(n.name) == null) {
+			errors.undefinedId(n.name);
+			return null;
+		} else {
+			this.currentMethod = (MethodType) currentClass.classInfo.getMethod(n.name);
+			n.statements.accept(this);
+			check(n.returnExp, n.returnType);
+		}
+		this.currentMethod = null;
+		
+		return null;
+	}
+
+	@Override
+	public Type visit(VarDecl n) {
+		// Check that the declared type exists
+		if (!env.lookup(n.name).equals(n.type)) {
+			ObjectType declaredClass = (ObjectType) n.type;
+			errors.undefinedId(declaredClass.name);
+		}
+		return null;
+	}
+
+	@Override
+	public Type visit(BooleanType n) {
+		return n;
+	}
+
+	@Override
+	public Type visit(IntegerType n) {
+		return n;
+	}
+
+	@Override
+	public Type visit(IntArrayType n) {
+		return n;
+	}
+
+	@Override
+	public Type visit(ObjectType n) {
+		return n;
+	}
+
+	@Override
+	public Type visit(MethodType n) {
+		return null;
+	}
+
+	@Override
+	public Type visit(Block n) {
+		n.statements.accept(this);
+		return null;
+	}
+
+	@Override
+	public Type visit(If n) {
+		check(n.test, new BooleanType());
+		n.then.accept(this);
+		n.els.accept(this);
+		return null;
+	}
+
+	@Override
+	public Type visit(While n) {
+		check(n.test, new BooleanType());
+		n.body.accept(this);
+		return null;
+	}
+
+	@Override
+	public Type visit(Print n) {
+		Type actual = n.exp.accept(this);
+		if (!assignableFrom(new IntegerType(), actual) && !assignableFrom(new BooleanType(), actual)) {
+			List<Type> l = new ArrayList<Type>();
+			l.add(new IntegerType());
+			l.add(new BooleanType());
+			errors.typeError(n.exp, l, actual);
+		}
+		return null;
+	}
+
+	@Override
+	public Type visit(Assign n) {
+		// Type check the variable being assigned to in the current scope
+		// Look for it in the method formals
+		if (currentMethod.lookupFormal(n.name) != null) {
+			check(n.value, currentMethod.lookupFormal(n.name).type);
+		// Look for it in the method locals
+		} else if (currentMethod.lookupLocal(n.name) != null) {
+			check(n.value, currentMethod.lookupLocal(n.name));
+		// Look for it in the class fields
+		} else if (currentClass.classInfo.fields.lookup(n.name) != null) {
+			check(n.value, currentClass.classInfo.fields.lookup(n.name));
+		} else {
+			errors.undefinedId(n.name);
+		}
+		
+		return null;
+	}
+
+	@Override
+	public Type visit(ArrayAssign n) {
+		check(n.value, new IntegerType());
+		check(n.index, new IntegerType());
+		// Check that variable being assigned to is of type IntArray
+		if (currentMethod.lookupFormal(n.name) != null) {
+			assignableFrom(currentMethod.lookupFormal(n.name).type, new IntArrayType());
+		} else if (currentMethod.lookupLocal(n.name) != null) {
+			assignableFrom(currentMethod.lookupLocal(n.name), new IntArrayType() );
+		} else if (currentClass.classInfo.fields.lookup(n.name) != null) {
+			assignableFrom(currentClass.classInfo.fields.lookup(n.name), new IntArrayType());
+		} else {
+			errors.undefinedId(n.name);
+		}
+		return null;
+	}
+
+	@Override
+	public Type visit(And n) {
+		check(n.e1, new BooleanType());
+		check(n.e2, new BooleanType());
+		n.setType(new BooleanType());
+		return n.getType();
+	}
+
+	@Override
+	public Type visit(LessThan n) {
+		check(n.e1, new IntegerType());
+		check(n.e2, new IntegerType());
+		n.setType(new BooleanType());
+		return n.getType();
+	}
+
+	@Override
+	public Type visit(Plus n) {
+		check(n.e1, new IntegerType());
+		check(n.e2, new IntegerType());
+		n.setType(new IntegerType());
+		return n.getType();
+	}
+
+	@Override
+	public Type visit(Minus n) {
+		check(n.e1, new IntegerType());
+		check(n.e2, new IntegerType());
+		n.setType(new IntegerType());
+		return n.getType();
+	}
+
+	@Override
+	public Type visit(Times n) {
+		check(n.e1, new IntegerType());
+		check(n.e2, new IntegerType());
+		n.setType(new IntegerType());
+		return n.getType();
+	}
+
+	@Override
+	public Type visit(ArrayLookup n) {
+		check(n.index, new IntegerType());
+		check(n.array, new IntArrayType());
+		n.setType(new IntegerType());
+		return n.getType();
+	}
+
+	@Override
+	public Type visit(ArrayLength n) {
+		check(n.array, new IntArrayType());
+		n.setType(new IntegerType());
+		return n.getType();
+	}
+
+	@Override
+	public Type visit(Call n) {
+		// check that the receiver is valid (i.e. is a defined object)
+		// check that the method exists in the receiver (or its superclass?) 
+		// check that the number of arguments and parameters are the same
+		// check that the types of the arguments match the types of the parameters
+		// return the return type of the method
+		return null;
+	}
+
+	@Override
+	public Type visit(IntegerLiteral n) {
+		n.setType(new IntegerType());
+		return n.getType();
+	}
+
+	@Override
+	public Type visit(BooleanLiteral n) {
+		n.setType(new BooleanType());
+		return n.getType();
+	}
+
+	@Override
+	public Type visit(IdentifierExp n) {
+		if (currentMethod.lookupFormal(n.name) != null) {
+			n.setType(currentMethod.lookupFormal(n.name).type);
+			return n.getType();
+		} else if (currentMethod.lookupLocal(n.name) != null) {
+			n.setType(currentMethod.lookupLocal(n.name));
+			return n.getType();
+		} else if (currentClass.classInfo.fields.lookup(n.name) != null) {
+			n.setType(currentClass.classInfo.fields.lookup(n.name));
+			return n.getType();
+		} else {
+			errors.undefinedId(n.name);
+			return null;
+		}
+		
+	}
+
+	@Override
+	public Type visit(This n) {
+		n.setType(currentClass);
+		return n.getType();
+	}
+
+	@Override
+	public Type visit(NewArray n) {
+		check(n.size, new IntegerType());
+		n.setType(new IntArrayType());
+		return n.getType();
+	}
+
+	@Override
+	public Type visit(NewObject n) {
+		if (env.lookup(n.typeName) == null) {
+			errors.undefinedId(n.typeName);
+		} else {
+			n.setType(new ObjectType(n.typeName));
+		}
+		return n.getType();
+	}
+
+	@Override
+	public Type visit(Not not) {
+		check(not.e, new BooleanType());
+		not.setType(new BooleanType());
+		return not.getType();
+	}
+}

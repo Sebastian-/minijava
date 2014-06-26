@@ -1,0 +1,15 @@
+package typechecker.implementation;
+
+import ast.Type;
+
+public class Binding {
+
+	public Binding(String s, Type t) {
+		this.id = s;
+		this.type = t;
+	}
+	
+	public String id;
+	public Type type;
+	
+}

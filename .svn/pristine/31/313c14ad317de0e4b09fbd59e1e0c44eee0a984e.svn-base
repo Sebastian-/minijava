@@ -1,0 +1,331 @@
+package translate.implementation;
+
+import static ir.tree.IR.CMOVE;
+import static ir.tree.IR.ESEQ;
+import static ir.tree.IR.FALSE;
+import static ir.tree.IR.MOVE;
+import static ir.tree.IR.SEQ;
+import static ir.tree.IR.TEMP;
+import static ir.tree.IR.TRUE;
+import static ir.tree.IR.JUMP;
+import static ir.tree.IR.LABEL;
+import static translate.Translator.L_MAIN;
+
+import util.List;
+
+import ast.AST;
+import ast.Assign;
+import ast.BooleanType;
+import ast.Conditional;
+import ast.Expression;
+import ast.ExpressionList;
+import ast.FormalList;
+import ast.FunctionCall;
+import ast.FunctionDeclaration;
+import ast.FunctionType;
+import ast.IdentifierExp;
+import ast.IntegerLiteral;
+import ast.IntegerType;
+import ast.LessThan;
+import ast.Minus;
+import ast.NodeList;
+import ast.Not;
+import ast.ParamDeclaration;
+import ast.Plus;
+import ast.Print;
+import ast.Program;
+import ast.Times;
+import ast.Type;
+import ast.UnknownType;
+
+import ir.frame.Access;
+import ir.frame.Frame;
+import ir.temp.Label;
+import ir.temp.Temp;
+import ir.tree.IR;
+import ir.tree.IRExp;
+import ir.tree.IRStm;
+import ir.tree.TEMP;
+import ir.tree.BINOP.Op;
+import ir.tree.CJUMP.RelOp;
+
+import translate.Fragments;
+import translate.ProcFragment;
+import translate.Translator;
+import util.FunTable;
+import util.Lookup;
+import visitor.Visitor;
+
+
+/**
+ * This visitor builds up a collection of IRTree code fragments for the body
+ * of methods in a minijava program.
+ * <p>
+ * Methods that visit statements and expression return a TRExp, other methods 
+ * just return null, but they may add Fragments to the collection by means
+ * of a side effect.
+ * 
+ * @author kdvolder
+ */
+public class TranslateVisitor implements Visitor<TRExp> {
+
+	/**
+	 * We build up a list of Fragment (pieces of stuff to be converted into
+	 * assembly) here.
+	 */
+	private Fragments frags;
+
+	/**
+	 * We use this factory to create Frame's, without making our code dependent
+	 * on the target architecture.
+	 */
+	private Frame frameFactory;
+	private Frame frame;
+	private FunTable<Access> currentEnv;
+
+	public TranslateVisitor(Lookup<Type> table, Frame frameFactory) {
+		this.frags = new Fragments(frameFactory);
+		this.frameFactory = frameFactory;
+	}
+
+	/////// Helpers //////////////////////////////////////////////
+
+	/**
+	 * Create a frame with a given number of formals.
+	 */
+	private Frame newFrame(Label name, int formals) {
+		return frameFactory.newFrame(name, formals);
+	}
+
+	private void putEnv(String name, Access access) {
+		currentEnv = currentEnv.insert(name, access);
+	}
+
+	////// Visitor ///////////////////////////////////////////////
+
+	@Override
+	public <T extends AST> TRExp visit(NodeList<T> ns) {
+		IRStm result = IR.NOP;
+		for (int i = 0; i < ns.size(); i++) {
+			AST nextStm = ns.elementAt(i);
+			result = IR.SEQ(result, nextStm.accept(this).unNx());
+		}
+		return new Nx(result);
+	}
+
+	@Override
+	public TRExp visit(Program n) {
+		frame = newFrame(L_MAIN, 0);
+		currentEnv = FunTable.theEmpty();
+		TRExp statements = n.statements.accept(this);
+		TRExp print = n.print.accept(this);
+		IRStm body = IR.SEQ(
+				statements.unNx(),
+				print.unNx());
+		frags.add(new ProcFragment(frame, frame.procEntryExit1(body)));
+
+		return null;
+	}
+
+	@Override
+	public TRExp visit(BooleanType n) {
+		throw new Error("Not implemented");
+	}
+
+	@Override
+	public TRExp visit(IntegerType n) {
+		throw new Error("Not implemented");
+	}
+
+	@Override
+	public TRExp visit(UnknownType n) {
+		throw new Error("Not implemented");
+	}
+
+	@Override
+	public TRExp visit(Print n) {
+		TRExp arg = n.exp.accept(this);
+		return new Ex(IR.CALL(Translator.L_PRINT, arg.unEx()));
+	}
+
+	@Override
+	public TRExp visit(Assign n) {
+		Access var = frame.allocLocal(false);
+		putEnv(n.name, var);
+		TRExp val = n.value.accept(this);
+		return new Nx(IR.MOVE(var.exp(frame.FP()), val.unEx()));
+	}
+
+	@Override
+	public TRExp visit(LessThan n) {
+		TRExp l = n.e1.accept(this);
+		TRExp r = n.e2.accept(this);
+
+		TEMP v = TEMP(new Temp());
+		return new Ex(ESEQ( SEQ( 
+				MOVE(v, FALSE),
+				CMOVE(RelOp.LT, l.unEx(), r.unEx(), v, TRUE)),
+				v));
+	}
+
+	//////////////////////////////////////////////////////////////
+
+	private TRExp numericOp(Op op, Expression e1, Expression e2) {
+		TRExp l = e1.accept(this);
+		TRExp r = e2.accept(this);
+		return new Ex(IR.BINOP(op, l.unEx(), r.unEx()));
+	}
+
+	@Override
+	public TRExp visit(Plus n) {
+		return numericOp(Op.PLUS,n.e1,n.e2);
+	}
+
+	@Override
+	public TRExp visit(Minus n) {
+		return numericOp(Op.MINUS,n.e1,n.e2);
+	}
+
+	@Override
+	public TRExp visit(Times n) {
+		return numericOp(Op.MUL,n.e1,n.e2);
+	}
+
+	//////////////////////////////////////////////////////////////////
+
+	@Override
+	public TRExp visit(IntegerLiteral n) {
+		return new Ex(IR.CONST(n.value));
+	}
+
+	@Override
+	public TRExp visit(IdentifierExp n) {
+		Access var = currentEnv.lookup(n.name);
+		return new Ex(var.exp(frame.FP()));
+	}
+
+	@Override
+	public TRExp visit(Not n) {
+		final TRExp negated = n.e.accept(this);
+		return new Ex(IR.BINOP(Op.MINUS, IR.CONST(1), negated.unEx()));
+//		return new Cx() {
+//			@Override
+//			IRStm unCx(Label ifTrue, Label ifFalse) {
+//				return negated.unCx(ifFalse, ifTrue);
+//			}
+//		};
+	}
+
+	/**
+	 * After the visitor successfully traversed the program, 
+	 * retrieve the built-up list of Fragments with this method.
+	 */
+	public Fragments getResult() {
+		return frags;
+	}
+
+	@Override
+	/* Strict Evaluation
+	 * 
+	 * public TRExp visit(Conditional n) {
+		TRExp c = n.e1.accept(this);
+		TRExp t = n.e2.accept(this);
+		TRExp f = n.e3.accept(this);
+
+		TEMP v = TEMP(new Temp());
+		return new Ex(ESEQ( SEQ( 
+				MOVE(v, f.unEx()),
+				CMOVE(RelOp.EQ, c.unEx(), TRUE, v, t.unEx())),
+				v));
+	} */
+	
+	/* Lazy Evaluation
+	 *  
+	 *  Code sourced from slides at: 
+	 *  http://www.cs.purdue.edu/homes/xyzhang/spring11/notes/ir.pdf
+	 */
+	
+	public TRExp visit(Conditional n) {
+		TRExp c = n.e1.accept(this);
+		TRExp t = n.e2.accept(this);
+		TRExp f = n.e3.accept(this);
+		
+		TEMP v = TEMP(new Temp());
+		Label then = Label.gen();
+		Label elsewise = Label.gen();
+		Label end = Label.gen();
+		
+		return new Ex(ESEQ(SEQ(SEQ(c.unCx(then, elsewise),
+					SEQ(SEQ(LABEL(then),
+						SEQ(MOVE(v, t.unEx()), JUMP(end))),
+						SEQ(LABEL(elsewise),
+								SEQ(MOVE(v, f.unEx()),
+										JUMP(end))))),
+										LABEL(end)),
+										v));
+	}
+
+	@Override
+	public TRExp visit(FunctionDeclaration n) {
+		// Update currentEnv to a new symbol table and save the global table
+		FunTable<Access> globalTable = currentEnv;
+		currentEnv = FunTable.theEmpty();
+		
+		// Generating function frame
+		Label functionName = Label.get(n.functionName);
+		int nformals = n.fl.paramList.size();
+		Frame globalFrame = frame;
+		frame = newFrame(functionName, nformals);
+		
+		// Associate parameters with formal temps in the frame
+		for(int i = 0; i < nformals; i++) {
+			putEnv(n.fl.paramList.elementAt(i).name.name, frame.getFormal(i));
+		}
+
+		// Generate IR for the function body and return expression
+		TRExp assignments = n.assignments.accept(this);
+		TRExp returnExp = n.returnExp.accept(this);
+
+		IRStm body = IR.SEQ(
+				assignments.unNx(),
+				(IR.MOVE(frame.RV(), returnExp.unEx())));
+		
+		frags.add(new ProcFragment(frame, frame.procEntryExit1(body)));
+		
+		// Restore frame and environment
+		frame = globalFrame;
+		currentEnv = globalTable;
+
+		return new Nx(IR.NOP);
+	}
+
+	@Override
+	public TRExp visit(FormalList n) {
+		return null;
+	}
+
+	@Override
+	public TRExp visit(ParamDeclaration n) {
+		return null;
+	}
+
+	@Override
+	public TRExp visit(ExpressionList n) {
+		return null;
+	}
+
+	@Override
+	public TRExp visit(FunctionCall n) {
+		Label functionName = Label.get(n.name);
+		List<IRExp> arguments = List.empty(); 
+		for(int i = 0; i < n.arguments.eList.size(); i++) {
+			arguments.add(n.arguments.eList.elementAt(i).accept(this).unEx());
+		}
+		return new Ex(IR.CALL(functionName, arguments));
+	}
+
+	@Override
+	public TRExp visit(FunctionType functionType) {
+		throw new Error("Not implemented");
+	}
+}

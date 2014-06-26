@@ -1,0 +1,24 @@
+class OffsetTest{
+    public static void main(String[] a){
+	System.out.println(new Test().Init());
+    }
+}
+
+class Test {
+	int a;
+	int b;
+	
+	public int Init() {
+		return a;
+    }
+}
+
+class Test2 extends Test {
+	int c;
+	int d;
+}
+
+class Test3 extends Test2 {
+	int e;
+	int f;
+}

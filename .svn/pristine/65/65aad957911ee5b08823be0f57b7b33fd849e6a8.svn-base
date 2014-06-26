@@ -1,0 +1,368 @@
+/**
+ * JavaCC file
+ */
+ 
+options {
+  JDK_VERSION = "1.6";
+  STATIC = false;
+}
+PARSER_BEGIN(JCCExpressionsParser)
+package parser.jcc;
+
+import ast.*;
+import java.util.ArrayList;
+import java.util.List;
+
+public class JCCExpressionsParser {
+}
+
+PARSER_END(JCCExpressionsParser)
+
+SKIP :
+{
+ 	" "
+|	"\r"
+|	"\t"
+|	"\n"
+|	< MULTI_LINE_COMMENT: "/*" (~["*"])* "*" ("*" | ~["*","/"] (~["*"])* "*")* "/" >
+|   < SINGLE_LINE_COMMENT: "//" (~["\n"])* >
+}
+
+TOKEN : /* KEYWORDS */
+{	
+	<PRINT:			"System.out.println" >
+|   <INTEGER:		"int" >
+|   <INTEGER_ARRAY:	"int []"|"int[]">
+| 	<BOOLEAN: 		"boolean" >
+| 	<RETURN: 		"return" >
+| 	<CLASS:			"class">
+| 	<PUBLIC:		"public">
+| 	<STATIC:		"static">
+| 	<VOID:			"void">
+| 	<MAIN:			"main">
+| 	<STRING:		"String">
+| 	<EXTENDS:		"extends">
+| 	<IF:			"if">
+| 	<ELSE:			"else">
+| 	<WHILE:			"while">
+| 	<TRUE:			"true">
+| 	<FALSE:			"false">
+| 	<NEW:			"new">
+| 	<THIS:			"this">
+| 	<LENGTH:		"length">
+}
+
+TOKEN : /* SEPARATORS and OPERATORS*/
+{	<LPAREN: 		"(">
+|	<RPAREN: 		")">
+|	<ASSIGN: 		"=">
+|	<QUESTION:	 	"?">
+|	<COLON:	 		":" >
+|	<PLUS:	 		"+" >
+|	<MINUS:  		"-" >
+|	<MULT:   		"*" >
+|	<SMALLER:		"<">
+|	<NOT:	 		"!">
+| 	<SEMICOLON:	 	";" >
+| 	<DOT:			".">
+}
+	
+TOKEN :
+{   < INTEGER_LITERAL: ( <DIGIT> )+ >
+|   < IDENTIFIER: <LETTER> (<LETTER> | "_" | <DIGIT>)* >
+|   < #LETTER: ["A" - "Z", "a" - "z"] >
+|   < #DIGIT: ["0" - "9"] >
+}
+
+//**************** DECLARATIONS ***************************************
+
+Program Program() :
+{
+  MainClass main;
+  NodeList<ClassDecl> otherClasses = new NodeList<ClassDecl>();
+  ClassDecl c; 
+}{
+  main = MainClass()
+  (
+    c = ClassDecl()
+  	{ otherClasses.add(c); }
+  )*
+  <EOF>
+  
+  { return new Program(main, otherClasses); }
+}
+
+MainClass MainClass() :{  String className;
+  String argName;
+  Statement s;
+}
+{  < CLASS > className = Identifier() "{"
+  < PUBLIC >< STATIC >< VOID >< MAIN > "(" < STRING > "[" "]" argName = Identifier() ")" "{"
+  s = Statement() "}"
+  "}"
+  
+  { return new MainClass(className, argName, s); }
+}
+
+ClassDecl ClassDecl() :{  String name;
+  String superName = null;
+  VarDecl var;
+  MethodDecl method;
+  NodeList<VarDecl> vars = new NodeList<VarDecl>();
+  NodeList<MethodDecl> methods = new NodeList<MethodDecl>();
+}
+{  < CLASS > name = Identifier() ( < EXTENDS > superName = Identifier() )? "{"
+  (    var = FieldVarDecl()
+    { vars.add(var); }
+  )*
+  (    method = MethodDecl()
+    { methods.add(method); }
+  )*
+  "}"
+  
+  { return new ClassDecl(name, superName, vars, methods); }
+}
+
+MethodDecl MethodDecl() :{  Type returnType;
+  String name;
+  VarDecl var;
+  Statement s;
+  NodeList<VarDecl> formals = new NodeList<VarDecl>();
+  NodeList<VarDecl> locals = new NodeList<VarDecl>();
+  NodeList<Statement> statements = new NodeList<Statement>();
+  Expression returnExp;
+}
+{
+  < PUBLIC > returnType = Type() name = Identifier() "("
+  (    var = FormalVarDecl()
+    { formals.add(var); }
+    (     "," var = FormalVarDecl()
+      { formals.add(var); }
+    )*
+  )? ")" "{"
+  (
+    LOOKAHEAD(2)    var = LocalVarDecl()
+    { locals.add(var); }
+  )*
+  (    s = Statement()
+    { statements.add(s); }
+  )*
+  < RETURN > returnExp = Expression() ";" "}"
+
+  { return new MethodDecl(returnType, name, formals, locals, statements, returnExp); }
+}
+
+//**************** VARIABLE DECLARATIONS ******************************
+
+VarDecl FieldVarDecl() :{
+  Type type;
+  String name;
+}
+{  type = Type() name = Identifier() ";"
+    { return new VarDecl(VarDecl.Kind.FIELD, type, name); }
+}
+
+VarDecl LocalVarDecl() :
+{
+  Type type;
+  String name;
+}
+{
+  type = Type() name = Identifier() ";"
+  
+  { return new VarDecl(VarDecl.Kind.LOCAL, type, name); }
+}
+
+VarDecl FormalVarDecl() :
+{
+  Type type;
+  String name;
+}
+{
+  type = Type() name = Identifier()
+  
+  { return new VarDecl(VarDecl.Kind.FORMAL, type, name); }
+}
+//**************** STATEMENTS *****************************************
+
+Statement Statement() :
+{
+	Statement s;
+}
+{
+	( s = Block()
+	| s = If()
+	| s = While()
+	| s = Print()
+	| LOOKAHEAD(2)
+	  s = Assign()
+	| s = ArrayAssign())
+	
+	{ return s; }		
+}
+Statement Assign() :
+{
+	String name;
+	Expression value;
+}
+{	name = Identifier() "=" value = Expression() ";"
+	
+	{return new Assign(name, value); }
+}
+
+Statement Block() :{  Statement s;
+  NodeList<Statement> statements = new NodeList<Statement>();
+}
+{  "{" ( s = Statement()
+  		{ statements.add(s); } )* "}"
+
+  { return new Block(statements); }
+}
+
+Statement If() :{  Expression test;
+  Statement then;
+  Statement els;
+}
+{
+  < IF > "(" test = Expression() ")" then = Statement() < ELSE > els = Statement()
+
+  { return new If(test, then, els); }
+}Statement While() :{  Expression test;
+  Statement body;
+}
+{  < WHILE > "(" test = Expression() ")" body = Statement()
+
+  { return new While(test, body); }
+}
+Statement Print() :{  Expression e;
+}
+{  < PRINT > "(" e = Expression() ")" ";"
+
+  { return new Print(e); }
+}
+
+Statement ArrayAssign() :{  String name;
+  Expression index;
+  Expression value;
+}
+{  name = Identifier() "[" index = Expression() "]" "=" value = Expression() ";"
+
+  { return new ArrayAssign(name, index, value); }
+}
+//**************** TYPES **********************************************
+Type Type() :
+{
+  Token t;
+}
+{
+	( LOOKAHEAD(2)
+	  t = < INTEGER >
+	  { return new IntegerType(); }	| t = < BOOLEAN >
+	  { return new BooleanType(); }
+	| t = < INTEGER_ARRAY > 
+	  { return new IntArrayType(); }
+	| t = < IDENTIFIER >
+	  { return new ObjectType(t.image); }		) 
+}
+//**************** EXPRESSIONS ****************************************
+
+Expression Expression() : {
+	Expression e, e2;
+}
+{	e=CompExpression() 
+	( "&&" e2 = Expression()
+		{	e = new And(e, e2); }
+	)?
+	{ return e; }
+}
+
+// For parsing anything with priority same or higher than <
+Expression CompExpression() : {
+	Expression e, e2;
+}
+{ 	e=AddExpression() 
+	( "<" e2=AddExpression() 
+		{ e = new LessThan(e, e2); }
+	)?
+	{ return e; }
+}
+// For parsing anything with priority same or higher than +
+Expression AddExpression() : {
+	Expression e, e2;
+	Token op;
+}
+{	e=MultExpression() 
+	( 	(op="+"|op="-") 
+		e2=MultExpression() 
+			{ if (op.image.equals("+"))
+				e=new Plus(e, e2);
+			  else
+			  	e=new Minus(e, e2);
+			}	
+	)*
+	{ return e; }
+}
+
+// For parsing anything with priority same or higher than *
+Expression MultExpression() :  {
+	Expression e, e2;
+}
+{	e=NotExpression() 
+	(	"*" e2=NotExpression()
+			{ e = new Times(e, e2); } 
+	)*
+	{ return e; }
+}
+
+// For parsing anything with priority same or higher than ! expressions:
+Expression NotExpression() : {
+	Expression e;
+}
+{ 	"!" e = NotExpression()		{ return new Not(e); }
+| 	e = PostfixExpression()		{ return e; }
+}
+
+// For parsing array lookup/length and method call expressions
+Expression PostfixExpression() :{
+  String id;
+  Expression prefix;  Expression e;
+  Expression call;
+  NodeList<Expression> eList = new NodeList<Expression>();
+}
+{
+  prefix = PrimaryExpression()							{ call = prefix; }
+    
+  (   	"[" e = Expression() "]"							{ return new ArrayLookup(prefix, e); }
+  | LOOKAHEAD(2)
+  	< DOT > < LENGTH >									{ return new ArrayLength(prefix); }  | ( < DOT > id = Identifier() "("
+  	  ( e=Expression() 		{ eList.add(e); }
+  	  ( "," e=Expression() 	{ eList.add(e); } )* )? ")" { call = new Call(call, id, eList); eList = new NodeList<Expression>(); } )+
+  	  													{ return call; }
+  )?
+
+  { return prefix; }
+}
+
+/* PrimaryExpression is the expression that has highest precedence.*/
+Expression PrimaryExpression() : {
+	Token t;
+	String id;
+	Expression e;
+}
+{
+  t = < INTEGER_LITERAL >							{ return new IntegerLiteral(t.image); }
+  | t = < TRUE >									{ return new BooleanLiteral(true); }  | t = < FALSE >									{ return new BooleanLiteral(false); }
+  | id = Identifier()								{ return new IdentifierExp(id); }
+  | t = < THIS >									{ return new This(); }
+  | "(" e = Expression() ")"						{ return e; }
+  |	LOOKAHEAD(2)
+  	< NEW > < INTEGER > "[" e = Expression() "]"	{ return new NewArray(e); }  | < NEW > id = Identifier() "(" ")"				{ return new NewObject(id); }
+}
+
+String Identifier() : {
+	Token i;
+}
+{
+	i = <IDENTIFIER>
+	{ return i.image; }
+}

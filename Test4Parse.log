@@ -1,0 +1,221 @@
+### BEG # TEST 1 ###
+---------------
+print 1
+vvvvvvvvvvvvvvv
+print 1
+
+### END # TEST 1 ###
+### BEG # TEST 2 ###
+---------------
+print this
+vvvvvvvvvvvvvvv
+print this
+
+### END # TEST 2 ###
+### BEG # TEST 3 ###
+---------------
+print !x
+vvvvvvvvvvvvvvv
+print !x
+
+---------------
+print !!!!!!x
+vvvvvvvvvvvvvvv
+print !!!!!!x
+
+### END # TEST 3 ###
+### BEG # TEST 4 ###
+---------------
+print (1)
+vvvvvvvvvvvvvvv
+print 1
+
+---------------
+print ((((((1))))))
+vvvvvvvvvvvvvvv
+print 1
+
+### END # TEST 4 ###
+### BEG # TEST 5 ###
+---------------
+print 10*9
+vvvvvvvvvvvvvvv
+print (10 * 9)
+
+---------------
+print 10*9*8
+vvvvvvvvvvvvvvv
+print ((10 * 9) * 8)
+
+---------------
+print foo*length
+vvvvvvvvvvvvvvv
+print (foo * length)
+
+---------------
+print 10*9*8*7*x*y*foo
+vvvvvvvvvvvvvvv
+print ((((((10 * 9) * 8) * 7) * x) * y) * foo)
+
+### END # TEST 5 ###
+### BEG # TEST 6 ###
+---------------
+print 10+9
+vvvvvvvvvvvvvvv
+print (10 + 9)
+
+---------------
+print 10-9
+vvvvvvvvvvvvvvv
+print (10 - 9)
+
+---------------
+print 10+9+8
+vvvvvvvvvvvvvvv
+print ((10 + 9) + 8)
+
+---------------
+print 10-9-8
+vvvvvvvvvvvvvvv
+print ((10 - 9) - 8)
+
+---------------
+print length+length
+vvvvvvvvvvvvvvv
+print (length + length)
+
+---------------
+print length-length
+vvvvvvvvvvvvvvv
+print (length - length)
+
+---------------
+print foo+foo
+vvvvvvvvvvvvvvv
+print (foo + foo)
+
+---------------
+print foo+(foo)
+vvvvvvvvvvvvvvv
+print (foo + foo)
+
+---------------
+print 10+9+x*length-foo+array
+vvvvvvvvvvvvvvv
+print ((((10 + 9) + (x * length)) - foo) + array)
+
+---------------
+print (a-b)*(a+b)
+vvvvvvvvvvvvvvv
+print ((a - b) * (a + b))
+
+### END # TEST 6 ###
+### BEG # TEST 7 ###
+---------------
+print 10<9
+vvvvvvvvvvvvvvv
+print (10 < 9)
+
+---------------
+print 10+a*3<9-4+2
+vvvvvvvvvvvvvvv
+print ((10 + (a * 3)) < ((9 - 4) + 2))
+
+---------------
+print length<1
+vvvvvvvvvvvvvvv
+print (length < 1)
+
+---------------
+print i<foo
+vvvvvvvvvvvvvvv
+print (i < foo)
+
+---------------
+print 10<9
+vvvvvvvvvvvvvvv
+print (10 < 9)
+
+---------------
+print 10+a*3<9-4+2
+vvvvvvvvvvvvvvv
+print ((10 + (a * 3)) < ((9 - 4) + 2))
+
+---------------
+print length<1
+vvvvvvvvvvvvvvv
+print (length < 1)
+
+---------------
+print i<foo
+vvvvvvvvvvvvvvv
+print (i < foo)
+
+### END # TEST 7 ###
+### BEG # TEST 8 ###
+---------------
+numbers = numbers + 1;
+print 1
+vvvvvvvvvvvvvvv
+numbers = (numbers + 1);
+print 1
+
+---------------
+foo = foo+1;
+print 1
+vvvvvvvvvvvvvvv
+foo = (foo + 1);
+print 1
+
+### END # TEST 8 ###
+### BEG # TEST 9 ###
+---------------
+print x
+vvvvvvvvvvvvvvv
+print x
+
+---------------
+print y
+vvvvvvvvvvvvvvv
+print y
+
+---------------
+print xy123
+vvvvvvvvvvvvvvv
+print xy123
+
+---------------
+print x_y_123
+vvvvvvvvvvvvvvv
+print x_y_123
+
+---------------
+print x_y_123
+vvvvvvvvvvvvvvv
+print x_y_123
+
+### END # TEST 9 ###
+### BEG # TEST 10 ###
+---------------
+print 10<9?x:y
+vvvvvvvvvvvvvvv
+print ( (10 < 9) ? x : y )
+
+---------------
+print 10+a*3<9-4+2 ? 3 + 4 : 5 * 7
+vvvvvvvvvvvvvvv
+print ( ((10 + (a * 3)) < ((9 - 4) + 2)) ? (3 + 4) : (5 * 7) )
+
+---------------
+print 1 ? 2 ? 3 ? 4 : 5 : 6 : 7
+vvvvvvvvvvvvvvv
+print ( 1 ? ( 2 ? ( 3 ? 4 : 5 ) : 6 ) : 7 )
+
+---------------
+print 1 ? 2 ? 3 : 4 ? 5 : 6 : 7 ? 8 : 9
+vvvvvvvvvvvvvvv
+print ( 1 ? ( 2 ? 3 : ( 4 ? 5 : 6 ) ) : ( 7 ? 8 : 9 ) )
+
+### END # TEST 10 ###
+### BEG # TEST 11 ###
+### END # TEST 11 ###

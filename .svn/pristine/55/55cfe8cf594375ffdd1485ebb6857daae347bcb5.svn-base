@@ -1,0 +1,21 @@
+class TranslateFieldsAndLocals {
+	public static void main(String[] a){
+	System.out.println(new Driver().start(2));
+    }
+}
+
+class Driver {
+	
+	int a;
+	int d;
+	
+	public int start(int b) {
+		int c;
+		
+		a = 1;
+		c = 3;
+		d = 4;
+		return a + b + c + d;
+	}
+	
+}

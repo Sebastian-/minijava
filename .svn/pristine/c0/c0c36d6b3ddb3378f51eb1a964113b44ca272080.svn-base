@@ -1,0 +1,17 @@
+less = 1 < 2;
+more = !less;
+int myFunction( int foo, boolean bar ) {
+	p = 2;
+	t = 5;
+	z = foo;
+	return z+1;
+}
+
+test = myFunction( 3, 3 < 4);
+
+int x( int x ) {
+	test = myFunction( 3, 3 < 4);
+	return x+1;
+}
+
+print test

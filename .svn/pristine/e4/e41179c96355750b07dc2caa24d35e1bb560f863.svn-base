@@ -1,0 +1,34 @@
+package typechecker.implementation;
+
+import util.ImpTable;
+import util.ImpTable.DuplicateException;
+
+import ast.Type;
+
+public class ClassInfo {
+	
+	public String superName = null;
+	public ImpTable<Type> fields = new ImpTable<Type>();
+	public ImpTable<Type> methods = new ImpTable<Type>();
+	
+	public void addSuperName(String parentClass) {
+		superName = parentClass;
+	}
+	
+	public void addField(String id, Type t) throws DuplicateException {
+		fields.put(id, t);
+	}
+	
+	public void addMethod(String id, MethodType t) throws DuplicateException {
+		fields.put(id, t);
+	}
+	
+	public MethodType getMethod(String id) {
+		return (MethodType) methods.lookup(id);
+	}
+	
+	public Type getField(String id) {
+		return fields.lookup(id);
+	}
+	
+}

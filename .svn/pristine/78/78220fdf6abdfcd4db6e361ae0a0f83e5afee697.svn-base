@@ -1,0 +1,457 @@
+package translate.implementation;
+
+import static ir.tree.IR.CMOVE;
+import static ir.tree.IR.ESEQ;
+import static ir.tree.IR.FALSE;
+import static ir.tree.IR.MOVE;
+import static ir.tree.IR.SEQ;
+import static ir.tree.IR.TEMP;
+import static ir.tree.IR.TRUE;
+import static ir.tree.IR.JUMP;
+import static ir.tree.IR.LABEL;
+import static translate.Translator.L_MAIN;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import ast.AST;
+import ast.And;
+import ast.ArrayAssign;
+import ast.ArrayLength;
+import ast.ArrayLookup;
+import ast.Assign;
+import ast.Block;
+import ast.BooleanLiteral;
+import ast.BooleanType;
+import ast.Call;
+import ast.ClassDecl;
+import ast.Expression;
+import ast.IdentifierExp;
+import ast.If;
+import ast.IntArrayType;
+import ast.IntegerLiteral;
+import ast.IntegerType;
+import ast.LessThan;
+import ast.MainClass;
+import ast.MethodDecl;
+import ast.Minus;
+import ast.NewArray;
+import ast.NewObject;
+import ast.NodeList;
+import ast.Not;
+import ast.ObjectType;
+import ast.Plus;
+import ast.Print;
+import ast.Program;
+import ast.This;
+import ast.Times;
+import ast.Type;
+import ast.UnknownType;
+import ast.VarDecl;
+import ast.While;
+
+import ir.frame.Access;
+import ir.frame.Frame;
+import ir.temp.Label;
+import ir.temp.Temp;
+import ir.tree.IR;
+import ir.tree.IRExp;
+import ir.tree.IRStm;
+import ir.tree.TEMP;
+import ir.tree.BINOP.Op;
+import ir.tree.CJUMP.RelOp;
+
+import translate.Fragments;
+import translate.ProcFragment;
+import translate.Translator;
+import typechecker.implementation.MethodType;
+import util.FunTable;
+import util.ImpTable;
+import util.Lookup;
+import util.ImpTable.DuplicateException;
+import visitor.Visitor;
+
+
+/**
+ * This visitor builds up a collection of IRTree code fragments for the body
+ * of methods in a minijava program.
+ * <p>
+ * Methods that visit statements and expression return a TRExp, other methods 
+ * just return null, but they may add Fragments to the collection by means
+ * of a side effect.
+ * 
+ * @author kdvolder
+ */
+public class TranslateVisitor implements Visitor<TRExp> {
+
+	/**
+	 * We build up a list of Fragment (pieces of stuff to be converted into
+	 * assembly) here.
+	 */
+	private Fragments frags;
+
+	/**
+	 * We use this factory to create Frame's, without making our code dependent
+	 * on the target architecture.
+	 */
+	private Frame frameFactory;
+	private Frame frame;
+	private FunTable<Access> currentEnv;
+	// Table linking class names with the offsets of their fields
+	private ImpTable<List<Offset>> fieldOffsets;
+	private String currentClass;
+	// Current method's locals and their offsets from the frame pointer
+	private List<Offset> localOffsets;
+
+	public TranslateVisitor(Lookup<Type> table, Frame frameFactory) {
+		this.frags = new Fragments(frameFactory);
+		this.frameFactory = frameFactory;
+	}
+
+	/////// Helpers //////////////////////////////////////////////
+
+	/**
+	 * Create a frame with a given number of formals.
+	 */
+	private Frame newFrame(Label name, int formals) {
+		return frameFactory.newFrame(name, formals);
+	}
+
+	private void putEnv(String name, Access access) {
+		currentEnv = currentEnv.insert(name, access);
+	}
+	
+	/**
+	 * After the visitor successfully traversed the program, 
+	 * retrieve the built-up list of Fragments with this method.
+	 */
+	public Fragments getResult() {
+		return frags;
+	}
+	
+	/**
+	 * Returns a list of fields and their offsets, beginning with any fields in superclasses
+	 */
+	private List<Offset> genFieldOffsets(ClassDecl aClass, NodeList<ClassDecl> classes, int currentOffset) {
+		List<Offset> offsetList = new ArrayList<Offset>();
+		int offset = currentOffset;
+		
+		if(aClass.superName == null) {
+			for(int i = 0; i < aClass.vars.size(); i++) {
+				String varName = aClass.vars.elementAt(i).name;
+				Offset varOffset = new Offset(varName, offset);
+				offsetList.add(varOffset);
+				offset = offset + frame.wordSize();
+			}
+			
+			return offsetList;
+		} else {
+			ClassDecl superclass = null;
+			List<Offset> superClassOffsets = new ArrayList<Offset>();
+			
+			// Find the superclass declaration, guaranteed to be found 
+			// since program has been typechecked
+			for(int i = 0; i < classes.size(); i++) {
+				if(classes.elementAt(i).name.equals(aClass.superName)) {
+					superclass = classes.elementAt(i);
+					break;
+				}
+			}
+			
+			// Get offset list of superclass
+			superClassOffsets = genFieldOffsets(superclass, classes, offset);
+			// Update the state of the current method to account for the superclass fields
+			for( Offset o : superClassOffsets) {
+				offsetList.add(o);
+			}
+			offset = offset + (frame.wordSize() * superClassOffsets.size());
+			// Add the variable offsets of the current class
+			for(int i = 0; i < aClass.vars.size(); i++) {
+				String varName = aClass.vars.elementAt(i).name;
+				Offset varOffset = new Offset(varName, offset);
+				offsetList.add(varOffset);
+				offset = offset + frame.wordSize();
+			}
+			
+			return offsetList;
+		}
+	}
+	
+	private List<Offset> getFieldOffsets(ClassDecl aClass, NodeList<ClassDecl> classes) {
+		return genFieldOffsets(aClass, classes, 0);
+	}
+	
+	private ImpTable<List<Offset>> buildOffsetTable(NodeList<ClassDecl> classes) {
+		ImpTable<List<Offset>> offsetTable = new ImpTable<List<Offset>>();
+		
+		for (int i = 0; i < classes.size(); i++) {
+			ClassDecl currentClass = classes.elementAt(i);
+			List<Offset> classOffsets = getFieldOffsets(currentClass, classes);
+			try {
+				offsetTable.put(currentClass.name, classOffsets);
+			} catch (DuplicateException e) {
+				
+			}	
+		}
+		
+		return offsetTable;
+	}
+
+	////// Visitor ///////////////////////////////////////////////
+	
+	@Override
+	public <T extends AST> TRExp visit(NodeList<T> ns) {
+		IRStm result = IR.NOP;
+		for (int i = 0; i < ns.size(); i++) {
+			AST nextStm = ns.elementAt(i);
+			result = IR.SEQ(result, nextStm.accept(this).unNx());
+		}
+		return new Nx(result);
+	}
+
+	@Override
+	public TRExp visit(Program n) {
+		fieldOffsets = buildOffsetTable(n.classes);
+		n.mainClass.accept(this);
+		n.classes.accept(this);
+		
+		return null;
+	}
+
+	@Override
+	public TRExp visit(MainClass n) {
+		frame = newFrame(L_MAIN, 0);
+		currentEnv = FunTable.theEmpty();
+		TRExp statement = n.statement.accept(this);
+		IRStm body = statement.unNx();
+		frags.add(new ProcFragment(frame, frame.procEntryExit1(body)));
+		
+		return null;
+	}
+
+	@Override
+	public TRExp visit(ClassDecl n) {
+		currentClass = n.name;
+		n.methods.accept(this);
+		return null;
+	}
+
+	@Override
+	public TRExp visit(MethodDecl n) {
+		// Update currentEnv to an empty symbol table and save the global table
+		FunTable<Access> globalTable = currentEnv;
+		currentEnv = FunTable.theEmpty();
+
+		// Generating function frame
+		Label functionName = Label.get(currentClass + "_" + n.name);
+		int nformals = n.formals.size() + 1;
+		frame = newFrame(functionName, nformals);
+
+		// Associate parameters with formal temps in the frame
+		putEnv("this", frame.getFormal(0));
+		for(int i = 0; i < nformals; i++) {
+			putEnv(n.formals.elementAt(i).name, frame.getFormal(i + 1));
+		}
+
+		// Generate offset table for the variable declarations
+		int offset = 0;
+		List<Offset> varOffset = new ArrayList<Offset>();
+		for(int i = 0; i < n.vars.size(); i++) {
+			VarDecl currentVar = n.vars.elementAt(i);
+			varOffset.add(new Offset(currentVar.name, offset));
+			offset = offset + frame.wordSize();
+		}
+		localOffsets = varOffset;
+
+		// Generate IR for the function body and return Expression
+		TRExp statements = n.statements.accept(this);
+		TRExp returnExp = n.returnExp.accept(this);
+		
+		IRStm body = IR.SEQ(
+				statements.unNx(),
+				(IR.MOVE(frame.RV(), returnExp.unEx())));
+		
+		frags.add(new ProcFragment(frame, frame.procEntryExit1(body)));
+
+		// Restore environment
+		currentEnv = globalTable;
+		localOffsets = null;
+		currentClass = null;
+
+		return new Nx(IR.NOP);
+	}
+
+	@Override
+	public TRExp visit(VarDecl n) {
+		throw new Error("Not implemented");
+	}
+
+	@Override
+	public TRExp visit(BooleanType n) {
+		throw new Error("Not implemented");
+	}
+
+	@Override
+	public TRExp visit(IntegerType n) {
+		throw new Error("Not implemented");
+	}
+
+	@Override
+	public TRExp visit(IntArrayType n) {
+		throw new Error("Not implemented");
+	}
+
+	@Override
+	public TRExp visit(ObjectType n) {
+		throw new Error("Not implemented");
+	}
+
+	@Override
+	public TRExp visit(MethodType n) {
+		throw new Error("Not implemented");
+	}
+
+	@Override
+	public TRExp visit(UnknownType n) {
+		throw new Error("Not implemented");
+	}
+
+	@Override
+	public TRExp visit(Block n) {
+		return n.statements.accept(this);
+	}
+
+	@Override
+	public TRExp visit(If n) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public TRExp visit(While n) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public TRExp visit(Print n) {
+		TRExp arg = n.exp.accept(this);
+		return new Ex(IR.CALL(Translator.L_PRINT, arg.unEx()));
+	}
+
+	@Override
+	public TRExp visit(Assign n) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public TRExp visit(ArrayAssign n) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public TRExp visit(And n) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public TRExp visit(LessThan n) {
+		TRExp l = n.e1.accept(this);
+		TRExp r = n.e2.accept(this);
+
+		TEMP v = TEMP(new Temp());
+		return new Ex(ESEQ( SEQ( 
+				MOVE(v, FALSE),
+				CMOVE(RelOp.LT, l.unEx(), r.unEx(), v, TRUE)),
+				v));
+	}
+	
+	// Arithmetic Ops =================================================
+	
+	private TRExp numericOp(Op op, Expression e1, Expression e2) {
+		TRExp l = e1.accept(this);
+		TRExp r = e2.accept(this);
+		return new Ex(IR.BINOP(op, l.unEx(), r.unEx()));
+	}
+
+	@Override
+	public TRExp visit(Plus n) {
+		return numericOp(Op.PLUS,n.e1,n.e2);
+	}
+
+	@Override
+	public TRExp visit(Minus n) {
+		return numericOp(Op.MINUS,n.e1,n.e2);
+	}
+
+	@Override
+	public TRExp visit(Times n) {
+		return numericOp(Op.MUL,n.e1,n.e2);
+	}
+
+	@Override
+	public TRExp visit(ArrayLookup n) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public TRExp visit(ArrayLength n) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public TRExp visit(Call n) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public TRExp visit(IntegerLiteral n) {
+		return new Ex(IR.CONST(n.value));
+	}
+
+	@Override
+	public TRExp visit(BooleanLiteral n) {
+		if(n.value)
+			return new Ex(IR.CONST(1));
+		else
+			return new Ex(IR.CONST(0));
+	}
+
+	@Override
+	public TRExp visit(IdentifierExp n) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public TRExp visit(This n) {
+		// TODO
+		//return frame.getFormal(0).exp(fp);
+		return null;
+	}
+
+	@Override
+	public TRExp visit(NewArray n) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public TRExp visit(NewObject n) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public TRExp visit(Not not) {
+		final TRExp negated = not.e.accept(this);
+		return new Ex(IR.BINOP(Op.MINUS, IR.CONST(1), negated.unEx()));
+	}
+	
+}

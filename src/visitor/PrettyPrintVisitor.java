@@ -1,0 +1,397 @@
+package visitor;
+
+import java.io.PrintWriter;
+
+import ast.AST;
+import ast.And;
+import ast.ArrayAssign;
+import ast.ArrayLength;
+import ast.ArrayLookup;
+import ast.Assign;
+import ast.Block;
+import ast.BooleanLiteral;
+import ast.BooleanType;
+import ast.Call;
+import ast.ClassDecl;
+import ast.IdentifierExp;
+import ast.If;
+import ast.IntArrayType;
+import ast.IntegerLiteral;
+import ast.IntegerType;
+import ast.LessThan;
+import ast.MainClass;
+import ast.MethodDecl;
+import ast.Minus;
+import ast.NewArray;
+import ast.NewObject;
+import ast.NodeList;
+import ast.Not;
+import ast.ObjectType;
+import ast.Plus;
+import ast.Print;
+import ast.Program;
+import ast.This;
+import ast.Times;
+import ast.UnknownType;
+import ast.VarDecl;
+import ast.While;
+
+import typechecker.implementation.MethodType;
+import util.IndentingWriter;
+
+
+
+/**
+ * This is an adaptation of the PrettyPrintVisitor from the textbook
+ * online material, but updated to work with the "modernized" 
+ * Visitor and our own versions of the AST classes.
+ * <p>
+ * This version is also cleaned up to actually produce *properly* indented
+ * output.
+ * 
+ * @author kdvolder
+ */
+public class PrettyPrintVisitor implements Visitor<Void> {
+
+	/**
+	 * Where to send out.print output.
+	 */
+	private IndentingWriter out;
+	
+	public PrettyPrintVisitor(PrintWriter out) {
+		this.out = new IndentingWriter(out);
+	}
+	
+	///////////// Visitor methods /////////////////////////////////////////
+
+	@Override
+	public <T extends AST> Void visit(NodeList<T> nodes) {
+		for (int i = 0; i < nodes.size(); i++) {
+			nodes.elementAt(i).accept(this);
+		}
+		return null;
+	}
+	
+	@Override
+	public Void visit(Program n) {
+		n.mainClass.accept(this);
+		n.classes.accept(this);
+		return null;
+	}
+	
+	// *********** DECLARATIONS *******************************************
+	
+	@Override
+	public Void visit(MainClass n) {
+		out.println("class " + n.className + " {");
+		out.indent();
+		out.println("public static void main(String[] " + n.argName + ") {");
+		n.statement.accept(this);
+		out.println("}");
+		out.outdent();
+		out.println("}");
+		out.println();
+		return null;
+	}
+
+	@Override
+	public Void visit(ClassDecl n) {
+		if(n.superName != null)
+			out.println("class " + n.name + " extends " + n.superName + " {");
+		else
+			out.println("class " + n.name + " {");
+		out.indent();
+		n.vars.accept(this);
+		out.println();
+		n.methods.accept(this);
+		out.outdent();
+		out.println("}");
+		out.println();
+		return null;
+	}
+
+	@Override
+	public Void visit(MethodDecl n) {
+		out.print("public " + n.returnType.toString() + " " + n.name + "( ");
+		
+		// Printing formals
+		if( n.formals.size() > 0) {
+			n.formals.elementAt(0).accept(this);
+			
+			for(int i = 1; i < n.formals.size(); i++ ) {
+				out.print(", ");
+				n.formals.elementAt(i).accept(this);
+			}
+		}
+		out.println(" ) {");
+		
+		out.indent();
+		n.vars.accept(this);
+		out.println();
+		n.statements.accept(this);
+		out.print("return ");
+		n.returnExp.accept(this);
+		out.println(";");
+		out.outdent();
+		out.println("}");
+		out.println();
+		
+		return null;
+	}
+
+	@Override
+	public Void visit(VarDecl n) {
+		if(n.kind == VarDecl.Kind.FORMAL)
+			out.print(n.type.toString() + " " + n.name);
+		else
+			out.println(n.type.toString() + " " + n.name + ";");
+		return null;
+	}
+	
+	// *********** STATEMENTS *********************************************
+	
+	@Override
+	public Void visit(Print n) {
+		out.print("System.out.println(");
+		n.exp.accept(this);
+		out.println(");");
+		return null;
+	}
+	
+	@Override
+	public Void visit(Assign n) {
+		out.print(n.name + " = ");
+		n.value.accept(this);
+		out.println(";");
+		return null;
+	}
+	
+	@Override
+	public Void visit(Block n) {
+		out.println("{ ");
+		n.statements.accept(this);
+		out.println("} ");
+		return null;
+	}
+
+	@Override
+	public Void visit(If n) {
+		out.print("if( ");
+		n.test.accept(this);
+		out.println(" )");
+		out.indent();
+		n.then.accept(this);
+		out.outdent();
+		out.println("else");
+		out.indent();
+		n.els.accept(this);
+		out.println();
+		out.outdent();
+		return null;
+	}
+
+	@Override
+	public Void visit(While n) {
+		out.print("while( ");
+		n.test.accept(this);
+		out.println(" )");
+		out.indent();
+		n.body.accept(this);
+		out.outdent();
+		return null;
+	}
+
+	@Override
+	public Void visit(ArrayAssign n) {
+		out.print(n.name + "[");
+		n.index.accept(this);
+		out.print("] = ");
+		n.value.accept(this);
+		out.println(";");
+		return null;
+	}
+	
+	// *********** EXPRESSIONS ********************************************
+	
+	@Override
+	public Void visit(LessThan n) {
+		out.print("(");
+		n.e1.accept(this);
+		out.print(" < ");
+		n.e2.accept(this);
+		out.print(")");
+		return null;
+	}
+	
+	@Override
+	public Void visit(Plus n) {
+		out.print("(");
+		n.e1.accept(this);
+		out.print(" + ");
+		n.e2.accept(this);
+		out.print(")");
+		return null;
+	}
+	
+	@Override
+	public Void visit(Minus n) {
+		out.print("(");
+		n.e1.accept(this);
+		out.print(" - ");
+		n.e2.accept(this);
+		out.print(")");
+		return null;
+	}
+	
+	@Override
+	public Void visit(Times n) {
+		out.print("(");
+		n.e1.accept(this);
+		out.print(" * ");
+		n.e2.accept(this);
+		out.print(")");
+		return null;
+	}
+	
+	@Override
+	public Void visit(IntegerLiteral n) {
+		out.print(n.value);
+		return null;
+	}
+
+	@Override
+	public Void visit(IdentifierExp n) {
+		out.print(n.name);
+		return null;
+	}
+
+	@Override
+	public Void visit(Not n) {
+		out.print("!");
+		n.e.accept(this);
+		return null;
+	}
+	
+	@Override
+	public Void visit(And n) {
+		n.e1.accept(this);
+		out.print(" && ");
+		n.e2.accept(this);
+		return null;
+	}
+
+	@Override
+	public Void visit(ArrayLookup n) {
+		n.array.accept(this);
+		out.print("[");
+		n.index.accept(this);
+		out.print("]");
+		return null;
+	}
+
+	@Override
+	public Void visit(ArrayLength n) {
+		n.array.accept(this);
+		out.print(".length");
+		return null;
+	}
+
+	@Override
+	public Void visit(Call n) {
+		n.receiver.accept(this);
+		out.print("." + n.name + "(");
+		n.rands.accept(this);
+		out.print(")");
+		return null;
+	}
+
+	@Override
+	public Void visit(BooleanLiteral n) {
+		if(n.value)
+			out.print("true");
+		else
+			out.print("false");
+		return null;
+	}
+
+	@Override
+	public Void visit(This n) {
+		out.print("this");
+		return null;
+	}
+
+	@Override
+	public Void visit(NewArray n) {
+		out.print("new int[");
+		n.size.accept(this);
+		out.print("]");
+		return null;
+	}
+
+	@Override
+	public Void visit(NewObject n) {
+		out.print("new " + n.typeName + "()");
+		return null;
+	}
+	
+	// *********** TYPES **************************************************
+
+	@Override
+	public Void visit(BooleanType n) {
+		out.print("boolean");
+		return null;
+	}
+
+	@Override
+	public Void visit(IntegerType n) {
+		out.print("int");
+		return null;
+	}
+
+	@Override
+	public Void visit(IntArrayType n) {
+		out.print("int []");
+		return null;
+	}
+
+	@Override
+	public Void visit(ObjectType n) {
+		out.print(n.name);
+//		if (n.classInfo != null) {
+//			// Code used to display symbol table info for typechecking phase
+//			if (n.classInfo.superName != null) {
+//				out.println(" extends " + n.classInfo.superName);
+//			} else {
+//				out.println();
+//			}
+//			out.indent();
+//			out.indent();
+//			out.println("FEILDS");
+//			out.indent();
+//			n.classInfo.fields.dump(out);
+//			out.outdent();
+//			out.println();
+//			out.println("METHODS");
+//			out.indent();
+//			n.classInfo.methods.dump(out);
+//			out.outdent();
+//			out.println();
+//			out.outdent();
+//			out.outdent();
+//		}
+		return null;
+	}
+
+	@Override
+	public Void visit(MethodType n) {
+		out.print("Return Type: " + n.returnType.toString());
+		return null;
+	}
+
+	@Override
+	public Void visit(UnknownType unknownType) {
+		out.print("unknown");
+		return null;
+	}
+
+}

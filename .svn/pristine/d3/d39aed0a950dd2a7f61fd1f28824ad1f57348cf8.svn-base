@@ -1,0 +1,13 @@
+package translate.implementation;
+
+public class Offset {
+	
+	String varName;
+	int offset;
+	
+	public Offset(String var, int anOffset) {
+		this.varName = var;
+		this.offset = anOffset;
+	}
+
+}

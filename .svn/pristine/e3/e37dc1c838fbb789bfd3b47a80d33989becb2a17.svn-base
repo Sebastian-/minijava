@@ -1,0 +1,44 @@
+package ast;
+
+import typechecker.implementation.ClassInfo;
+import visitor.Visitor;
+
+public class ObjectType extends Type {
+	
+	public final String name;
+	public ClassInfo classInfo;
+	
+	public ObjectType() {
+		this.name = "ObjectType";
+	}
+
+	public ObjectType(String name) {
+		super();
+		this.name = name;
+	}
+
+	public ObjectType(String name, ClassInfo classInfo) {
+		this(name);
+		this.classInfo = classInfo;
+	}
+	
+
+	@Override
+	public <R> R accept(Visitor<R> v) {
+		return v.visit(this);
+	}
+
+	@Override
+	public boolean equals(Object other) {
+		if (this.getClass()==other.getClass()) {
+			if (this.name.equals(( (ObjectType) other).name)) {
+				return true;
+			} else if (((ObjectType) other).classInfo.superName != null) {
+				return ((ObjectType) other).classInfo.superName.equals(this.name);
+			}
+		}
+		
+		return false;
+	}
+
+}
